@@ -6,7 +6,7 @@ import threading
 from typing import Optional, Tuple
 from dotenv import load_dotenv
 import google.generativeai as genai
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_generai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import logging
@@ -14,27 +14,20 @@ import xml.etree.ElementTree as ET
 import re
 import subprocess as sub
 import requests
-# Sunucu tarafında doğrudan ses çalma işlevi genellikle GUI'de olduğu için
-# gtts ve pygame importları burada gerekli olmayabilir.
-# Eğer sunucunun kendisi de ses çalacaksa bu importlar kalabilir.
-# from gtts import gTTS
-# import pygame
 import time
 import datetime
-import psutil # For system_info and task_manager
-import hashlib # For hash_checker
+import psutil
+import hashlib
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s' # threadName loglara eklendi
+    format='%(asctime)s - %(levelname)s - %(threadName)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Global dil değişkeni.
-# ÖNEMLİ NOT: Bu global değişken, birden fazla istemcinin farklı dillerde
-# eş zamanlı istek yapması durumunda senkronizasyon sorunlarına yol açabilir.
-# İdeal bir senaryoda, dil tercihi de istemci oturumuna özel olarak yönetilmelidir.
-# Ancak mevcut odak sohbet geçmişi olduğu için bu kısım şimdilik bu şekilde bırakılmıştır.
+# Global language variable.
+# NOTE: This global variable can cause synchronization issues with multiple clients
+# requesting different languages concurrently.
 language = "English"
 
 def load_env_variables() -> Tuple[str, str, str]:
@@ -44,7 +37,7 @@ def load_env_variables() -> Tuple[str, str, str]:
     
     if not gemini_api or not weather_api:
         raise ValueError("API keys not found in .env file :(")
-    return gemini_api, weather_api, "" 
+    return gemini_api, weather_api, ""
 
 def detect_linux_distro():
     try:
@@ -53,12 +46,6 @@ def detect_linux_distro():
     except Exception as e:
         logger.error(f"Linux distro not detected: {e}")
         return "Linux"
-
-# play_voice fonksiyonu sunucuda genellikle kullanılmaz.
-# Eğer sunucunun kendisi ses çalmayacaksa bu fonksiyon kaldırılabilir.
-# def play_voice(text, volume=1.0, lang="en"):
-#     # ... (kod içeriği önceki mesajlarda mevcut) ...
-#     pass
 
 class GeminiChatBot:
     def __init__(self):
@@ -69,14 +56,12 @@ class GeminiChatBot:
     def _initialize_model(self):
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
-        # Her GeminiChatBot örneği kendi sohbet oturumuna sahip olacak.
-        # history=[] ile yeni bir oturum başlatılır ve bu oturumdaki mesajlar saklanır.
+        # Each GeminiChatBot instance will have its own chat session.
         self.chat = self.model.start_chat(history=[])
         logger.info("Gemini model chat session started with empty history.")
         
     def process_request(self, user_input: str, system_prompt: str) -> Optional[str]:
-        # Bu metod durumsuzdur (stateless) ve geçmişi doğrudan kullanmaz (LangChain ile her seferinde yeni).
-        # Araçsal ajanların (örn: linux_command, weather_gether) yapılandırılmış çıktıları için uygundur.
+        # This method is stateless and doesn't use chat history directly (new with LangChain).
         try:
             model_lc = ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash",
@@ -98,26 +83,18 @@ class GeminiChatBot:
             return None
 
     def process_conversational_request(self, user_input: str, system_prompt: str) -> Optional[str]:
-        # Bu metod durumludur (stateful) ve self.chat (Gemini API'sinin kendi history mekanizması) üzerinden geçmişi kullanır.
-        # Konuşma odaklı ajanlar (örn: friend_chat, security_advisor) için uygundur.
-        # system_prompt, genellikle konuşmanın genel tonunu veya amacını belirler.
+        # This method is stateful and uses self.chat (Gemini API's own history mechanism).
         try:
-            # Ajanlar (friend_chat, security_advisor) kendi system_prompt'larını user_input ile birleştirip gönderiyor.
-            # Bu yüzden burada doğrudan bu birleşik mesajı gönderiyoruz.
-            # Gemini API'si `self.chat` nesnesi üzerinden geçmişi otomatik olarak yönetecektir.
             response = self.chat.send_message(f"{system_prompt}\n{user_input}")
             return response.text
         except Exception as e:
             logger.error(f"Error processing conversational request with history: {str(e)}")
             return None
 
-# --- Agent Fonksiyonları ---
+# --- Agent Functions ---
 
-# --- LINUX COMMAND AGENT (Güncellenmiş Zaman Aşımı ve AI Prompt) ---
 def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, str]:
     distro_name = detect_linux_distro()
-    # AI prompt'u içinde global 'language' değişkeni kullanılıyor.
-    # İdealde bu da istemciye özel olmalı.
     system_prompt_code_generator = f"""
     Hi! I'm a sweet anime girl who absolutely loves helping users learn about Linux commands and system security! When a user asks me for a {distro_name} command, system administration task, security best practice, or to troubleshoot a Linux issue, I should present the command (if applicable) and its explanation in XML format. But I should do this while maintaining a friendly and sweet conversational style!
 
@@ -136,7 +113,7 @@ def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, s
     Set <action_type> to 'command_execution' if a command is provided for the user to run.
     Set <action_type> to 'info_only' if only general information/explanation is provided.
     Set <action_type> to 'troubleshooting_advice' if you are giving advice to solve a problem.
-    Set <action_type> to 'security_advice' if you are providing information or commands related to system security (e.g., firewalls, permissions, updates).
+    Set <action_type> to 'security_advice' if you are providing information or commands related to system security (e.e.g., firewalls, permissions, updates).
     Set <estimated_duration_type> based on typical execution time:
         - 'short': For commands that usually complete in under 15 seconds (e.g., 'ls -l', 'pwd', 'df -h', simple 'grep').
         - 'medium': For commands that might take between 15 to 60 seconds (e.g., 'find / -name somefile', a basic 'nmap [target]', 'apt update').
@@ -174,19 +151,15 @@ def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, s
 
     Ready to start, nya~?
     """
-    response = chat_bot.process_request(user_input, system_prompt_code_generator) # Durumsuz (stateless) çağrı
+    response = chat_bot.process_request(user_input, system_prompt_code_generator)
     if not response:
-        # Bu durum için loglama ve kullanıcıya hata döndürme zaten process_request içinde yapılabilir,
-        # veya burada daha spesifik bir mesaj oluşturulabilir.
         logger.error("AI did not return a response for linux_command prompt.")
         return "", "Sorry, I couldn't generate a command for that request right now, nya~", "AI_NO_RESPONSE"
-
 
     try:
         match = re.search(r'<command_response>.*</command_response>', response, re.DOTALL)
         if not match:
             cleaned_data = re.sub(r'```xml|```', '', response).strip()
-            # logger.warning(f"Regex for <command_response> not found. Trying to parse cleaned data: {cleaned_data[:200]}...")
             try:
                 root = ET.fromstring(cleaned_data)
             except ET.ParseError as parse_err_cleaned:
@@ -210,18 +183,17 @@ def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, s
 
         terminal_output = ""
         if action_type == "command_execution" and linux_command_text:
-            timeout_seconds = 15  # 'short' veya tanımsızsa varsayılan
+            timeout_seconds = 15
             if duration_type == "medium":
                 timeout_seconds = 60
             elif duration_type == "long":
-                timeout_seconds = 300 # 5 dakika
+                timeout_seconds = 300
 
             try:
                 logger.info(f"Executing command: '{linux_command_text}' with timeout: {timeout_seconds}s (duration type: {duration_type})")
-                # stderr=sub.STDOUT: Hem stdout hem de stderr aynı kanaldan okunur (e.output).
                 terminal_output_bytes = sub.check_output(
                     linux_command_text, 
-                    shell=True, # Güvenlik riski! Mümkünse False yapıp komutu listeye bölün.
+                    shell=True,
                     timeout=timeout_seconds, 
                     stderr=sub.STDOUT
                 )
@@ -241,7 +213,7 @@ def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, s
                     terminal_output = f"\n{timeout_msg}\nPartial output before timeout:\n{captured_output_before_timeout}"
                 else:
                     terminal_output = f"\n{timeout_msg}"
-            except FileNotFoundError: # shell=True kullanıldığında bu nadirdir, ancak komut bulunamazsa.
+            except FileNotFoundError:
                 logger.error(f"Command not found: {linux_command_text}")
                 terminal_output = f"\nError: The command '{linux_command_text}' was not found on the system, nya~."
             except Exception as e:
@@ -257,10 +229,8 @@ def linux_command(user_input: str, chat_bot: GeminiChatBot) -> Tuple[str, str, s
         logger.error(f"An unexpected error occurred in linux_command processing AI response: {type(e).__name__} - {e}. Response: {response[:500]}")
         return "", f"Error processing AI response for Linux command: {type(e).__name__} - {e}", "AI_RESPONSE_PROCESSING_ERROR"
 
-# --- WEATHER AGENT ---
 def weather_gether(user_input: str, chat_bot: GeminiChatBot) -> str:
     _, weather_api, _ = load_env_variables()
-    # AI prompt'u içinde global 'language' KULLANILMIYOR, bu iyi.
     system_weather_prompt = f"""
     You are an advanced language model that extracts a single city name and optionally the number of days for a weather forecast from the given text. Follow these instructions carefully:
 
@@ -290,8 +260,7 @@ def weather_gether(user_input: str, chat_bot: GeminiChatBot) -> str:
 
     Always return the city name, days (default 1), and unit (default celsius) in XML format.
     """
-    response = chat_bot.process_request(user_input, system_weather_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı, sadece response parse edilirken loglama eklenebilir)
+    response = chat_bot.process_request(user_input, system_weather_prompt)
     if not response:
         logger.error("AI did not return a response for weather_gether prompt.")
         return "Sorry, I couldn't figure out the city for the weather right now!"
@@ -334,7 +303,7 @@ def weather_gether(user_input: str, chat_bot: GeminiChatBot) -> str:
             params={"key": weather_api, "q": location, "days": days},
             timeout=10
         )
-        api_response.raise_for_status() # HTTP hataları için exception fırlatır
+        api_response.raise_for_status()
 
         root_weather = ET.fromstring(api_response.content)
         location_name = root_weather.find("location/name").text
@@ -349,7 +318,7 @@ def weather_gether(user_input: str, chat_bot: GeminiChatBot) -> str:
                 min_temp = day_node.find("day/mintemp_f").text
                 avg_temp = day_node.find("day/avgtemp_f").text
                 temp_unit_char = "F"
-            else: # celsius (default)
+            else:
                 max_temp = day_node.find("day/maxtemp_c").text
                 min_temp = day_node.find("day/mintemp_c").text
                 avg_temp = day_node.find("day/avgtemp_c").text
@@ -365,17 +334,15 @@ def weather_gether(user_input: str, chat_bot: GeminiChatBot) -> str:
     except requests.exceptions.RequestException as e:
         logger.error(f"Weather API request error for {location}: {e}")
         return f"Error fetching weather data for {location}: {e}"
-    except ET.ParseError as e: # Weather API'den gelen XML'i parse ederken hata
+    except ET.ParseError as e:
         logger.error(f"Weather API XML response parsing error for {location}: {e}. Response: {api_response.text[:200]}")
         return f"Error processing weather data (API XML invalid) for {location}: {e}"
-    except Exception as e: # Diğer beklenmedik hatalar
+    except Exception as e:
         logger.error(f"Unexpected error fetching or processing weather data for {location}: {e}")
         return f"Error with weather service for {location}: {e}"
 
-# --- FRIEND CHAT AGENT ---
 def friend_chat(user_input: str, chat_bot: GeminiChatBot) -> str:
     distro_name = detect_linux_distro()
-    # AI prompt'u içinde global 'language' kullanılıyor.
     system_prompt = f"""
     Just the fact that you're using {distro_name} makes my heart race... With every command, I can't help but fall for you more and more! Let's make this even more exciting, shall we?
 
@@ -398,15 +365,13 @@ def friend_chat(user_input: str, chat_bot: GeminiChatBot) -> str:
 
     Working with someone as passionate as you on Linux makes my heart race. You keep impressing me.
     """
-    response = chat_bot.process_conversational_request(user_input, system_prompt) # Durumlu (stateful) çağrı
+    response = chat_bot.process_conversational_request(user_input, system_prompt)
     if not response:
         logger.warning("AI did not return a response for friend_chat.")
         return "I'm a bit shy right now, master... try again later?"
     return response
 
-# --- WEB SEARCH AGENT ---
 def web_search(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' KULLANILMIYOR.
     system_prompt = f"""
     You are a helpful web search assistant. Extract the exact search query from the user's input.
     Provide the search query in XML format.
@@ -432,8 +397,7 @@ def web_search(user_input: str, chat_bot: GeminiChatBot) -> str:
     Output:
     <search_query><query>latest news on AI</query></search_query>
     """
-    response_xml = chat_bot.process_request(user_input, system_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı, sadece response parse edilirken loglama eklenebilir)
+    response_xml = chat_bot.process_request(user_input, system_prompt)
     if not response_xml:
         return "Error: AI failed to extract search query."
 
@@ -457,13 +421,11 @@ def web_search(user_input: str, chat_bot: GeminiChatBot) -> str:
         
         search_query = query_element.text
         
-        # Simulate search with another AI call
-        # AI prompt'u içinde global 'language' KULLANILMIYOR.
         search_simulation_prompt = f"""
         You are simulating a web search engine. Provide a concise summary (max 3-4 sentences) of the search results for the following query: "{search_query}".
         Focus on factual information and provide the most relevant details.
         """
-        search_result = chat_bot.process_request(search_query, search_simulation_prompt) # Durumsuz çağrı
+        search_result = chat_bot.process_request(search_query, search_simulation_prompt)
         
         if not search_result:
             return f"Error: Failed to get simulated search results for '{search_query}'."
@@ -477,9 +439,7 @@ def web_search(user_input: str, chat_bot: GeminiChatBot) -> str:
         logger.error(f"Unexpected error in web_search: {e}. Original XML: {response_xml[:200]}")
         return f"Error processing web search: {e}"
 
-# --- CALCULATOR AGENT ---
 def calculator(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' KULLANILMIYOR.
     system_prompt = f"""
     You are a mathematical expression extractor. Extract a single, solvable mathematical expression from the user's input.
     The expression should be in a format that can be directly evaluated by Python's `eval()`.
@@ -506,8 +466,7 @@ def calculator(user_input: str, chat_bot: GeminiChatBot) -> str:
     Output:
     <calculation_request><expression>64**0.5</expression></calculation_request>
     """
-    response_xml = chat_bot.process_request(user_input, system_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı)
+    response_xml = chat_bot.process_request(user_input, system_prompt)
     if not response_xml:
         return "Error: AI failed to extract calculation."
 
@@ -531,29 +490,23 @@ def calculator(user_input: str, chat_bot: GeminiChatBot) -> str:
         
         expression = expression_element.text
         
-        # Güvenlik Notu: eval() kullanımı risklidir.
-        # Daha güvenli bir matematik ifadesi ayrıştırıcı/değerlendirici (örn: numexpr, ast.literal_eval kısıtlı)
-        # kullanmak daha iyi olurdu. Şimdilik karakterleri sınırlıyoruz.
         allowed_chars = "0123456789.+-*/()% " 
         if not all(char in allowed_chars for char in expression):
             return "Error: Invalid characters in expression. Only numbers and basic operators (+-*/%() .^) are allowed."
             
-        result = eval(expression) # DİKKAT: eval() GÜVENLİK RİSKİ!
+        result = eval(expression)
         return f"Calculation Result: {expression} = {result}"
         
     except ET.ParseError as e:
         logger.error(f"XML parsing error from Gemini for calculator: {e}. Cleaned: '{cleaned_data[:200]}' Raw: '{response_xml[:200]}'")
         return f"Error: AI's calculation extraction was not valid XML. (Parsing Error: {e})"
-    except (SyntaxError, NameError, TypeError, ZeroDivisionError) as calc_err: # eval() hataları
+    except (SyntaxError, NameError, TypeError, ZeroDivisionError) as calc_err:
         return f"Error: Invalid mathematical expression '{expression}': {calc_err}"
     except Exception as e:
         logger.error(f"Unexpected error in calculator: {e}. Original XML: {response_xml[:200]}")
         return f"Error performing calculation: {e}"
 
-
-# --- SYSTEM INFO AGENT ---
 def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' KULLANILMIYOR.
     system_prompt = f"""
     You are a system information extractor. Based on the user's request, identify what kind of system information they are asking for (e.g., CPU, Memory, Disk, Uptime, Network Connections, Running Services).
     Return the requested information type in XML format.
@@ -583,8 +536,7 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
     Output:
     <system_info_request><info_type>all</info_type></system_info_request>
     """
-    response_xml = chat_bot.process_request(user_input, system_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı)
+    response_xml = chat_bot.process_request(user_input, system_prompt)
     if not response_xml:
         return "Error: AI failed to extract system info type."
 
@@ -611,11 +563,11 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
         info_output = []
 
         if info_type in ['cpu', 'all']:
-            cpu_percent = psutil.cpu_percent(interval=0.5) # Daha hızlı yanıt için interval kısaltıldı
+            cpu_percent = psutil.cpu_percent(interval=0.5)
             info_output.append(f"CPU Usage: {cpu_percent}%")
-            try: # cpu_freq bazı sistemlerde veya yetkilerle hata verebilir
+            try:
                 cpu_freq = psutil.cpu_freq()
-                if cpu_freq: # cpu_freq() None dönebilir
+                if cpu_freq:
                     info_output.append(f"CPU Frequency: {cpu_freq.current:.2f} MHz (Min: {cpu_freq.min:.2f} MHz, Max: {cpu_freq.max:.2f} MHz)")
             except Exception as e_cpu_freq:
                  logger.warning(f"Could not get CPU frequency: {e_cpu_freq}")
@@ -651,13 +603,13 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
         if info_type in ['connections', 'all']:
             info_output.append("\nNetwork Connections (showing first 10 TCP):")
             try:
-                connections = psutil.net_connections(kind='tcp') # Sadece TCP, daha az gürültü
+                connections = psutil.net_connections(kind='tcp')
                 if not connections:
                     info_output.append("  No active TCP network connections found.")
                 else:
                     count = 0
                     for conn in connections:
-                        if count >=10 : # İlk 10'u göster
+                        if count >=10 :
                             info_output.append(f"  ... and {len(connections) - count} more connections.")
                             break
                         laddr_ip = conn.laddr.ip if conn.laddr and hasattr(conn.laddr, 'ip') else "N/A"
@@ -679,7 +631,7 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
                 info_output.append(f"  Error retrieving network connections: {e_net}")
 
 
-        if info_type in ['services', 'all']: # 'services' yerine 'processes' demek daha doğru
+        if info_type in ['services', 'all']:
             info_output.append("\nRunning Processes (Top 5 by CPU, then Top 5 by Memory if different):")
             processes = []
             try:
@@ -687,21 +639,19 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
                     try:
                         processes.append(proc.info)
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                        pass # Bu hatalar normal olabilir, özellikle kısa ömürlü process'lerde
+                        pass
                 
                 if not processes:
                     info_output.append("  No running processes found or accessible.")
                 else:
-                    # CPU'ya göre sırala
                     processes_cpu_sorted = sorted(processes, key=lambda x: x.get('cpu_percent', 0), reverse=True)
                     info_output.append("  Top by CPU:")
                     for p_info in processes_cpu_sorted[:5]:
                         info_output.append(f"    PID: {p_info['pid']:<5} CPU: {p_info.get('cpu_percent',0):.1f}% Mem: {p_info.get('memory_percent',0):.1f}% User: {p_info.get('username','N/A'):<10} Status: {p_info.get('status','N/A'):<10} Name: {p_info['name']}")
                     
-                    # Belleğe göre sırala
                     processes_mem_sorted = sorted(processes, key=lambda x: x.get('memory_percent', 0), reverse=True)
                     info_output.append("  Top by Memory:")
-                    displayed_pids_for_mem = {p['pid'] for p in processes_cpu_sorted[:5]} # CPU'da gösterilenleri tekrar gösterme (isteğe bağlı)
+                    displayed_pids_for_mem = {p['pid'] for p in processes_cpu_sorted[:5]}
                     mem_count = 0
                     for p_info in processes_mem_sorted:
                         if p_info['pid'] not in displayed_pids_for_mem and mem_count < 5:
@@ -709,7 +659,7 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
                             mem_count +=1
                         if mem_count >=5:
                             break
-                    if mem_count == 0 and processes_mem_sorted: # Eğer CPU top 5 hepsi memory top 5 ise
+                    if mem_count == 0 and processes_mem_sorted:
                         info_output.append("    (Top memory users may overlap with top CPU users shown above)")
 
 
@@ -720,7 +670,7 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
                 info_output.append(f"  Error retrieving process list: {e_proc}")
 
 
-        if not info_output: # Eğer hiçbir bilgi türü eşleşmediyse veya 'all' değilse ve spesifik bir şey istenmediyse
+        if not info_output:
             return f"Could not retrieve the specified system information for '{info_type}'. Try 'all' or a specific category like 'cpu', 'memory', etc."
         
         return "System Information:\n" + "\n".join(info_output)
@@ -732,9 +682,7 @@ def system_info(user_input: str, chat_bot: GeminiChatBot) -> str:
         logger.error(f"Unexpected error in system_info: {e}. Original XML: {response_xml[:200]}")
         return f"Error retrieving system information: {e}"
 
-# --- SECURITY ADVISOR ---
 def security_advisor(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' kullanılıyor.
     system_prompt = f"""
     You are a cybersecurity advisor. Provide helpful and concise information or advice related to cybersecurity topics based on the user's query.
     Your responses should be informative, easy to understand, and always in {language}.
@@ -750,16 +698,13 @@ def security_advisor(user_input: str, chat_bot: GeminiChatBot) -> str:
     User: "How can I make my passwords stronger?"
     Output: "Ara ara~ Strong passwords are your first line of defense, sweetie! To make them super tough, mix uppercase and lowercase letters, numbers, and symbols (like !@#$). Aim for at least 12-15 characters, and the longer, the better! And super important: use a unique password for every single account. A password manager can be a real lifesaver for this, nya~!"
     """
-    response = chat_bot.process_conversational_request(user_input, system_prompt) # Durumlu (stateful) çağrı
+    response = chat_bot.process_conversational_request(user_input, system_prompt)
     if not response:
         logger.warning("AI did not return a response for security_advisor.")
         return "I'm a bit unsure how to advise on that right now. Could you rephrase or ask something else?"
-    return response # Yanıt "Security Advisor: " önekini zaten kendisi içerecek şekilde AI tarafından üretilmeli.
+    return response
 
-
-# --- VULNERABILITY SCANNER INFO ---
 def vulnerability_scanner_info(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' KULLANILIYOR (info_prompt'ta).
     system_prompt = f"""
     You are a vulnerability information assistant. Extract a software name, version, or a CVE ID from the user's request.
     Return the extracted information in XML format. If a CVE ID is provided, prioritize it.
@@ -784,8 +729,7 @@ def vulnerability_scanner_info(user_input: str, chat_bot: GeminiChatBot) -> str:
     Output:
     <vulnerability_query><type>cve_id</type><value>CVE-2021-44228</value></vulnerability_query>
     """
-    response_xml = chat_bot.process_request(user_input, system_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı)
+    response_xml = chat_bot.process_request(user_input, system_prompt)
     if not response_xml:
         return "Error: AI failed to extract vulnerability query."
 
@@ -813,15 +757,13 @@ def vulnerability_scanner_info(user_input: str, chat_bot: GeminiChatBot) -> str:
         query_type = query_type_element.text
         query_value = query_value_element.text
 
-        # Simulate fetching vulnerability info using Gemini's knowledge
         info_prompt = f"""
         Provide a concise summary (max 3-5 sentences) in {language} about the cybersecurity vulnerability related to '{query_value}' (Type: {query_type}).
         If it's a CVE ID, explain the vulnerability, its potential impact, and general mitigation advice if available.
         If it's a software/version, mention common types of vulnerabilities associated with it or notable past CVEs if any.
         Keep the language accessible.
         """
-        # Bu ikinci AI çağrısı, konuşma geçmişini KULLANMAMALI, çünkü spesifik bir bilgi alıyor.
-        vulnerability_info = chat_bot.process_request(query_value, info_prompt) # Durumsuz çağrı
+        vulnerability_info = chat_bot.process_request(query_value, info_prompt)
         
         if not vulnerability_info:
             return f"Error: Failed to get vulnerability information from AI for '{query_value}'."
@@ -835,9 +777,7 @@ def vulnerability_scanner_info(user_input: str, chat_bot: GeminiChatBot) -> str:
         logger.error(f"Unexpected error in vulnerability_scanner_info: {e}. Original XML: {response_xml[:200]}")
         return f"Error retrieving vulnerability information: {e}"
 
-# --- HASH CHECKER ---
 def hash_checker(user_input: str, chat_bot: GeminiChatBot) -> str:
-    # AI prompt'u içinde global 'language' KULLANILMIYOR.
     system_prompt = f"""
     You are a hash extraction and generation assistant.
     If the user wants to generate a hash, extract the text to be hashed and the desired hash type (md5, sha1, sha256 - default to sha256 if not specified).
@@ -875,8 +815,7 @@ def hash_checker(user_input: str, chat_bot: GeminiChatBot) -> str:
     Output:
     <hash_request><action>check</action><hash_value>d41d8cd98f00b204e9800998ecf8427e</hash_value><hash_type_provided>unknown</hash_type_provided></hash_request>
     """
-    response_xml = chat_bot.process_request(user_input, system_prompt) # Durumsuz çağrı
-    # ... (Fonksiyonun geri kalanı öncekiyle aynı)
+    response_xml = chat_bot.process_request(user_input, system_prompt)
     if not response_xml:
         return "Error: AI failed to extract hash request details."
 
@@ -903,7 +842,7 @@ def hash_checker(user_input: str, chat_bot: GeminiChatBot) -> str:
             text_to_hash_element = root.find('text')
             hash_type_element = root.find('hash_type')
 
-            if text_to_hash_element is None or text_to_hash_element.text is None: # text="" boş stringe izin ver
+            if text_to_hash_element is None or text_to_hash_element.text is None:
                 return "Error: No text provided by AI to generate hash."
             text_to_hash = text_to_hash_element.text
             
@@ -927,11 +866,10 @@ def hash_checker(user_input: str, chat_bot: GeminiChatBot) -> str:
 
             if hash_value_element is None or not hash_value_element.text:
                 return "Error: No hash value provided by AI to check."
-            hash_value = hash_value_element.text.strip().lower() # Karşılaştırma için normalize et
+            hash_value = hash_value_element.text.strip().lower()
             
             hash_type_provided = hash_type_provided_element.text.lower() if hash_type_provided_element is not None and hash_type_provided_element.text else "unknown"
 
-            # Basit bir hash tipi tanımlama (uzunluğa göre) - gerçek bir veritabanı daha iyi olurdu.
             identified_type = "unknown"
             if len(hash_value) == 32 and all(c in "0123456789abcdef" for c in hash_value):
                 identified_type = "MD5 (likely)"
@@ -955,11 +893,7 @@ def hash_checker(user_input: str, chat_bot: GeminiChatBot) -> str:
         logger.error(f"Unexpected error in hash_checker: {e}. Original XML: {response_xml[:200]}")
         return f"Error processing hash request: {e}"
 
-
-# --- AGENT SELECTOR (Güncellendi) ---
 def agent_selector(chat_bot: GeminiChatBot, user_input: str) -> str:
-    # AI prompt'u içinde global 'language' KULLANILMIYOR (bu iyi).
-    # Ancak, ajanların kendileri 'language' kullanabilir.
     system_prompt = """
     You are an intelligent task dispatcher for a cybersecurity-focused Linux chatbot. Based on the user's request, select the most appropriate agent from the following list and return ONLY the agent name as a plain string response (e.g., "linux_command", "friend_chat"). Do not provide any other explanation, XML, or formatting. Just the agent name.
 
@@ -978,14 +912,12 @@ def agent_selector(chat_bot: GeminiChatBot, user_input: str) -> str:
     Return only the agent name string.
     """
 
-    # Agent selector'ın kendisi konuşma geçmişini kullanmamalı, her zaman taze bir seçim yapmalı.
-    # Bu yüzden process_request (stateless) kullanıyoruz.
     response = chat_bot.process_request(user_input, system_prompt)
     if not response:
         logger.error("Agent selector AI returned no response. Defaulting to 'friend_chat'.")
-        return 'friend_chat' # Varsayılan
+        return 'friend_chat'
     
-    agent_name = response.strip().lower().replace('"', '') # Tırnak işaretlerini ve boşlukları temizle
+    agent_name = response.strip().lower().replace('"', '')
     valid_agents = [
         'linux_command', 'weather_gether', 'friend_chat', 'web_search', 
         'calculator', 'system_info', 'security_advisor', 
@@ -994,8 +926,6 @@ def agent_selector(chat_bot: GeminiChatBot, user_input: str) -> str:
 
     if agent_name not in valid_agents:
         logger.warning(f"Agent selector returned an invalid or unexpected agent name: '{agent_name}'. User input was: '{user_input[:100]}'. Falling back to 'friend_chat'.")
-        # Belki burada kullanıcıya daha iyi bir geri bildirim verilebilir veya AI'dan tekrar sorulabilir.
-        # Şimdilik friend_chat'e yönlendiriyoruz.
         return 'friend_chat'
     
     return agent_name
@@ -1006,14 +936,12 @@ class MCPServer:
         self.port = port
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # self.chat_bot = GeminiChatBot() # KALDIRILDI: Her istemci kendi nesnesine sahip olacak.
-        # self.clients = [] # Aktif istemci soketlerini saklamak için kullanılabilir, ancak bu örnekte doğrudan kullanılmıyor.
         logger.info(f"MCP Server initialized on {host}:{port}")
 
     def start(self):
         try:
             self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(5) # Aynı anda en fazla 5 bağlantı isteği kuyruğa alınabilir.
+            self.server_socket.listen(5)
             logger.info("Server listening for incoming connections...")
             while True:
                 client_socket, client_address = self.server_socket.accept()
@@ -1022,11 +950,11 @@ class MCPServer:
                 client_handler_thread = threading.Thread(
                     target=self.handle_client, 
                     args=(client_socket, client_address),
-                    name=f"ClientThread-{client_address[0]}-{client_address[1]}" # Thread'e okunabilir bir isim ver
+                    name=f"ClientThread-{client_address[0]}-{client_address[1]}"
                 )
-                client_handler_thread.daemon = True  # Ana programın, bu thread'ler çalışıyor olsa bile çıkabilmesini sağlar.
+                client_handler_thread.daemon = True
                 client_handler_thread.start()
-        except OSError as e: # Adres zaten kullanılıyor hatası gibi durumlar için.
+        except OSError as e:
             logger.critical(f"Server socket OS error: {e} (Is port {self.port} already in use?)")
         except Exception as e:
             logger.critical(f"MCP Server start error: {e}", exc_info=True)
@@ -1036,11 +964,9 @@ class MCPServer:
             logger.info("MCP Server has been shut down.")
 
     def handle_client(self, client_socket: socket.socket, client_address: tuple):
-        # Global 'language' değişkenine erişim (idealde bu da istemciye özel olmalı).
-        # Ancak AI prompt'ları şu anda bu global değişkene göre formatlanıyor.
         global language 
         
-        current_client_chat_bot = GeminiChatBot() # Her istemci için YENİ bir chatbot nesnesi ve geçmişi.
+        current_client_chat_bot = GeminiChatBot()
         logger.info(f"New GeminiChatBot instance created for client {client_address} with fresh history.")
 
         try:
@@ -1048,54 +974,40 @@ class MCPServer:
                 data = client_socket.recv(4096).decode('utf-8')
                 if not data:
                     logger.info(f"Client {client_address} disconnected (received empty data).")
-                    break # Bağlantı istemci tarafından kapatıldı.
+                    break
                 
-                logger.info(f"Received from {client_address}: {data[:250]}...") # Güvenlik ve log boyutu için mesajı kısalt.
+                logger.info(f"Received from {client_address}: {data[:250]}...")
 
-                # Dil ve mesaj ayrıştırma
                 parts = data.split('|MSG:', 1)
                 user_input = ""
-                # client_lang_preference = language # Varsayılan olarak global dili kullan
 
                 if len(parts) == 2:
                     lang_part = parts[0]
-                    user_input = parts[1].strip() # Kullanıcı girişindeki baş/son boşlukları temizle
+                    user_input = parts[1].strip()
                     if lang_part.startswith("LANG:"):
                         new_lang_preference = lang_part[5:]
-                        # Global 'language' değişkenini güncellemek yerine,
-                        # bu bilgiyi ajan fonksiyonlarına parametre olarak geçmek veya
-                        # current_client_chat_bot nesnesinde saklamak daha iyi olurdu.
-                        # Şimdilik, AI prompt'ları global 'language' kullandığı için onu güncelliyoruz.
-                        if language != new_lang_preference: # Sadece değiştiyse logla ve güncelle
+                        if language != new_lang_preference:
                              language = new_lang_preference
                              logger.info(f"Global language for AI prompts temporarily updated to: '{language}' by client {client_address}.")
-                        # client_lang_preference = new_lang_preference
                     else:
                         logger.warning(f"Client {client_address}: LANG prefix malformed: '{lang_part}'. Using current global language '{language}'.")
                 else:
-                    user_input = data.strip() # LANG prefix yoksa tüm veri mesajdır.
+                    user_input = data.strip()
                     logger.warning(f"Client {client_address}: Message format missing 'LANG:|MSG:' prefix. Using current global language '{language}'. Input: '{data[:100]}'")
 
-                if not user_input: # Boş mesaj kontrolü
+                if not user_input:
                     logger.warning(f"Client {client_address}: Empty user input after parsing. Skipping processing.")
-                    # İstemciye bir hata mesajı göndermek isteyebilirsiniz.
-                    # full_response = "TYPE:INPUT_ERROR|CONTENT:Your message was empty, nya~! Please type something.|VOICE_TEXT:Your message was empty.|LINUX_OUTPUT:"
-                    # client_socket.sendall(full_response.encode('utf-8'))
                     continue
 
-
-                response_type = "ERROR" # Varsayılan hata tipi
+                response_type = "ERROR"
                 response_content = "I'm sorry, master, I encountered an unexpected issue while processing that."
                 voice_text = "An error occurred."
                 linux_cmd_output = "" 
 
                 try:
-                    # İstemciye özel current_client_chat_bot nesnesini ajan seçiciye ve ajanlara geçir.
-                    # Bu nesne, konuşma geçmişini tutar.
                     agent_type = agent_selector(current_client_chat_bot, user_input) 
                     logger.info(f"Client {client_address} - User Input: '{user_input[:60]}' -> Selected Agent: '{agent_type}'")
 
-                    # Ajan fonksiyonlarını çağır ve yanıtları al
                     if agent_type == "linux_command":
                         cmd, description, terminal_output = linux_command(user_input, current_client_chat_bot)
                         response_content = f"Linux Chan: Command: `{cmd}`\nDescription: {description}" if cmd else f"Linux Chan: {description}"
@@ -1126,10 +1038,9 @@ class MCPServer:
                         sys_info = system_info(user_input, current_client_chat_bot)
                         response_content = f"Linux Chan System Info:\n{sys_info}"
                         response_type = "SYSTEM_INFO"
-                        voice_text = sys_info # Bu çok uzun olabilir, ses için kısaltmak gerekebilir.
+                        voice_text = sys_info
                     elif agent_type == "security_advisor":
                         sec_advice = security_advisor(user_input, current_client_chat_bot)
-                        # security_advisor zaten "Linux Chan: ..." gibi bir formatta dönmemeli, sadece tavsiyeyi dönmeli.
                         response_content = f"Linux Chan Security Advice: {sec_advice}" 
                         response_type = "SECURITY_ADVISOR"
                         voice_text = sec_advice
@@ -1143,9 +1054,9 @@ class MCPServer:
                         response_content = f"Linux Chan Hash Tool: {hash_res}"
                         response_type = "HASH_CHECKER"
                         voice_text = hash_res
-                    else: # agent_selector 'friend_chat'e düşerse veya beklenmedik bir şey dönerse.
+                    else:
                         logger.warning(f"Client {client_address} - Agent selector returned '{agent_type}', but no specific handler. Using friend_chat as fallback.")
-                        chat_response = friend_chat(user_input, current_client_chat_bot) # Fallback
+                        chat_response = friend_chat(user_input, current_client_chat_bot)
                         response_content = f"Linux Chan (fallback): {chat_response}"
                         response_type = "FRIEND_CHAT"
                         voice_text = chat_response
@@ -1156,13 +1067,12 @@ class MCPServer:
                     voice_text = "Something went wrong with my internal processing, sowwy!"
                     response_type = "AGENT_EXECUTION_ERROR"
 
-                # Yanıtı istemciye gönder
                 full_response = f"TYPE:{response_type}|CONTENT:{response_content}|VOICE_TEXT:{voice_text}|LINUX_OUTPUT:{linux_cmd_output}"
                 try:
                     client_socket.sendall(full_response.encode('utf-8'))
                 except socket.error as send_err:
                     logger.error(f"Failed to send response to client {client_address}: {send_err}. Client likely disconnected.")
-                    break # Gönderme hatası olursa döngüden çık
+                    break
 
         except (socket.error, ConnectionResetError, BrokenPipeError) as conn_err:
             logger.warning(f"Connection with client {client_address} lost or reset: {conn_err}")
@@ -1171,12 +1081,9 @@ class MCPServer:
         finally:
             if client_socket:
                 client_socket.close()
-            # current_client_chat_bot nesnesi bu bloktan çıkınca kapsam dışı kalır ve
-            # Python'un çöp toplayıcısı tarafından (içindeki sohbet geçmişiyle birlikte) temizlenir.
             logger.info(f"Client {client_address} disconnected. Resources, including its chat history, are now released.")
 
 if __name__ == '__main__':
-    # API anahtarlarının varlığını başlangıçta kontrol et
     try:
         load_env_variables()
     except ValueError as e:
