@@ -1,4 +1,4 @@
-# Arch Chan - Your Cute Anime Girl AI Assistant 🌸
+# Arch Chan - Your Cute Anime Girl AI Assistant
 
 ![Arch Chan](https://raw.githubusercontent.com/berkucuk/Arch-Chan-AI/refs/heads/main/icons/arch-chan.png)
 
