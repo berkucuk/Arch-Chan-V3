@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=3.0
+Type=Application
+Name=Arch Chan AI
+Comment=Launch Arch Chan AI Chat
+Exec=/usr/share/Arch-Chan-AI/run.sh
+Icon=/usr/share/Arch-Chan-AI/icons/arch-chan_mini.png
+Terminal=false
+Categories=AI;Utility;

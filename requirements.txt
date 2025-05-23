@@ -1,0 +1,10 @@
+PyQt5
+gTTS
+pygame
+python-dotenv
+google-generativeai
+langchain-google-genai
+langchain-core
+requests
+psutil
+distro
